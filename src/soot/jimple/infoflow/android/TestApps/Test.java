@@ -17,9 +17,12 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.FilenameFilter;
 import java.io.IOException;
+import java.io.StringWriter;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -27,10 +30,17 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import soot.jimple.infoflow.util.IntentTag;
 
 import org.xmlpull.v1.XmlPullParserException;
 
+import soot.Hierarchy;
+import soot.Scene;
+import soot.SootClass;
+import soot.SootMethod;
+import soot.jimple.Stmt;
 import soot.jimple.infoflow.IInfoflow.CallgraphAlgorithm;
+import soot.jimple.infoflow.Infoflow;
 import soot.jimple.infoflow.InfoflowResults;
 import soot.jimple.infoflow.InfoflowResults.SinkInfo;
 import soot.jimple.infoflow.InfoflowResults.SourceInfo;
@@ -43,12 +53,14 @@ import soot.jimple.infoflow.solver.IInfoflowCFG;
 import soot.jimple.infoflow.taintWrappers.EasyTaintWrapper;
 import soot.jimple.infoflow.taintWrappers.ITaintPropagationWrapper;
 import soot.jimple.infoflow.taintWrappers.TaintWrapperSet;
+import soot.jimple.internal.AbstractInvokeExpr;
 
 public class Test {
 	
 	private static final class MyResultsAvailableHandler implements
 			ResultsAvailableHandler {
-		private final BufferedWriter wr;
+		private BufferedWriter wr;
+		public String appPkgName;
 
 		private MyResultsAvailableHandler() {
 			this.wr = null;
@@ -57,24 +69,206 @@ public class Test {
 		private MyResultsAvailableHandler(BufferedWriter wr) {
 			this.wr = wr;
 		}
-
+		
 		@Override
 		public void onResultsAvailable(
 				IInfoflowCFG cfg, InfoflowResults results) {
 			// Dump the results
-			if (results == null) {
-				print("No results found.");
+			if (outFilename != null) {
+				try {
+					this.wr = new BufferedWriter(new FileWriter(outFilename));
+				} catch (IOException ex) {
+				}
 			}
-			else {
-				for (SinkInfo sink : results.getResults().keySet()) {
-					print("Found a flow to sink " + sink + ", from the following sources:");
-					for (SourceInfo source : results.getResults().get(sink)) {
-						print("\t- " + source.getSource() + " (in "
-								+ cfg.getMethodOf(source.getContext()).getSignature()  + ")");
-						if (source.getPath() != null && !source.getPath().isEmpty())
-							print("\t\ton Path " + source.getPath());
+			if (results == null) {
+				println("No results found.");
+			} else {
+				println("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+				println("<results package=\"" + escapeXML(this.appPkgName)
+						+ "\">");
+				Set<SinkInfo> sinks = new TreeSet<SinkInfo>(results
+						.getResults().keySet());
+				for (SinkInfo sink : sinks) {
+					// println("Found a flow to sink " + sink +
+					// ", from the following sources:");
+					// for (SourceInfo source : results.getResults().get(sink))
+					// {
+					// println("\t- " + source.getSource() + " (in "
+					// + cfg.getMethodOf(source.getContext()).getSignature() +
+					// ")");
+					// if (source.getPath() != null &&
+					// !source.getPath().isEmpty())
+					// println("\t\ton Path " + source.getPath());
+					// }
+					println("<flow>");
+					// Stmt sinkStmt = sink.getContext();
+					print("<sink method=\""
+							+ escapeXML(getMethSig(sink.getContext())) + "\"");
+					if (Infoflow.isIntentSink(sink.getContext())) {
+						print(" is-intent=\"1\"");
+						print(" component-type=\""
+								+ escapeXML(getComponentTypeFromMethod(sink.getContext()))
+								+ "\"");
+						print(" intent-id=\""
+								+ escapeXML(((IntentTag) sink.getContext()
+										.getTag("IntentID")).getIntentID())
+								+ "\"");
+					}
+					if (Infoflow.isIntentResultSink(sink.getContext())) {
+						print(" is-intent-result=\"1\"");
+						print(" component=\""
+								+ escapeXML(cfg.getMethodOf(sink.getContext())
+										.getDeclaringClass()) + "\"");
+					}
+					println("></sink>");
+					for (SourceInfo source : new TreeSet<SourceInfo>(results
+							.getResults().get(sink))) {
+						println("<source method=\""
+								+ escapeXML(getMethSig(source.getContext()))
+								+ "\" component-type=\""
+								+ escapeXML(getComponentTypeFromClass(cfg.getMethodOf(source.getContext()).getDeclaringClass()))
+								+ "\" component=\""
+								+ escapeXML(cfg
+										.getMethodOf(source.getContext())
+										.getDeclaringClass()) + "\">");
+						println("<in>"
+								+ escapeXML(cfg
+										.getMethodOf(source.getContext())
+										.getName()) + "</in>");
+						if (source.getPath() != null
+								&& !source.getPath().isEmpty()) {
+							// println("<on-path>" + escapeXML(source.getPath())
+							// + "</on-path>");
+						}
+						println("</source>");
+					}
+					println("</flow>");
+				}
+				println("</results>");
+			}
+			if (outFilename != null) {
+				try {
+					wr.close();
+				} catch (Exception ex) {
+				}
+			}
+		}
+		
+		public String getMethSig(Stmt stmt) {
+			if (!stmt.containsInvokeExpr()) {
+				return "Stmt(" + stmt.toString() + ")";
+			}
+			AbstractInvokeExpr ie = (AbstractInvokeExpr) stmt.getInvokeExpr();
+			SootMethod meth = ie.getMethod();
+			return meth.getSignature();
+		}
+		
+		private static String getComponentTypeFromClass(SootClass theClass) {
+
+			SootClass androidActivity = Scene.v().getSootClass(
+					"android.app.Activity");
+			SootClass androidService = Scene.v().getSootClass(
+					"android.app.Service");
+			SootClass androidBroadcastReceiver = Scene.v().getSootClass(
+					"android.content.BroadcastReceiver");
+
+			Hierarchy hierarchy = new Hierarchy();
+
+			if (hierarchy.isClassSuperclassOf(androidActivity, theClass)) {
+				return "Activity";
+			}
+
+			if (hierarchy.isClassSuperclassOf(androidService, theClass)) {
+				return "Service";
+			}
+
+			if (hierarchy.isClassSuperclassOf(androidBroadcastReceiver, theClass)) {
+				return "BroadcastReceiver";
+			}
+			
+			return "";
+
+		}
+
+		private static String getComponentTypeFromMethod(Stmt stmt) {
+
+			if (!stmt.containsInvokeExpr()) {
+				return "";
+			}
+
+			AbstractInvokeExpr ie = (AbstractInvokeExpr) stmt.getInvokeExpr();
+			SootMethod meth = ie.getMethod();
+
+			// FIXME: Check the method name better!
+			if (meth.toString().indexOf("startActivity") != -1) {
+				return "Activity";
+			}
+
+			if (meth.toString().indexOf("sendBroadcast") != -1 || meth.toString().indexOf("sendStickyBroadcast") != -1 || meth.toString().indexOf("sendOrderedBroadcast") != -1) {
+				return "BroadcastReceiver";
+			}
+
+			if (meth.toString().indexOf("startService") != -1 || meth.toString().indexOf("bindService") != -1) {
+				return "Service";
+			}
+
+			return "";
+		}
+
+		public static String escapeXML(Object obj) {
+			return escapeXML(obj.toString(), "");
+		}
+
+		public static String escapeXML(String str, String retIfNull) {
+			/*
+			 * Based on
+			 * http://www.docjar.com/html/api/org/apache/commons/lang/Entities
+			 * .java.html
+			 */
+			if (str == null) {
+				return retIfNull;
+			}
+			StringWriter writer = new StringWriter();
+
+			int len = str.length();
+			for (int i = 0; i < len; i++) {
+				char c = str.charAt(i);
+				if (c > 0x7F) {
+					writer.write("&#");
+					writer.write(Integer.toString(c, 10));
+					writer.write(';');
+				} else {
+					switch ((byte) c) {
+					case '&':
+						writer.write("&amp;");
+						break;
+					case '<':
+						writer.write("&lt;");
+						break;
+					case '>':
+						writer.write("&gt;");
+						break;
+					case '"':
+						writer.write("&quot;");
+						break;
+					case '\'':
+						writer.write("&apos;");
+						break;
+					default:
+						writer.write(c);
 					}
 				}
+			}
+			return writer.toString();
+		}
+
+		private void println(String string) {
+			try {
+				System.out.println(string);
+				if (wr != null)
+					wr.write(string + "\n");
+			} catch (IOException ex) {
+				// ignore
 			}
 		}
 
@@ -109,6 +303,7 @@ public class Test {
 	private static boolean librarySummaryTaintWrapper = false;
 	private static String summaryPath = "";
 	private static PathBuilder pathBuilder;
+	private static String outFilename = null;
 	
 	private static CallgraphAlgorithm callgraphAlgorithm = CallgraphAlgorithm.AutomaticSelection;
 	
@@ -237,6 +432,10 @@ public class Test {
 			}
 			else if (args[i].equalsIgnoreCase("--aplength")) {
 				accessPathLength = Integer.valueOf(args[i+1]);
+				i += 2;
+			} 
+			else if (args[i].equalsIgnoreCase("--out")) {
+				outFilename = args[i + 1];
 				i += 2;
 			}
 			else if (args[i].equalsIgnoreCase("--cgalgo")) {
@@ -509,7 +708,10 @@ public class Test {
 			}
 				
 			System.out.println("Running data flow analysis...");
-			final InfoflowResults res = app.runInfoflow(new MyResultsAvailableHandler());
+			MyResultsAvailableHandler handler = new MyResultsAvailableHandler();
+			handler.appPkgName = app.getSourceSinkManager().getAppPackageName();
+			
+			final InfoflowResults res = app.runInfoflow(handler);
 			System.out.println("Analysis has run for " + (System.nanoTime() - beforeRun) / 1E9 + " seconds");
 			return res;
 		} catch (IOException ex) {
@@ -580,6 +782,7 @@ public class Test {
 		System.out.println("\t--ALIASFLOWINS Use a flow insensitive alias search");
 		System.out.println("\t--NOPATHS Do not compute result paths");
 		System.out.println("\t--AGGRESSIVETW Use taint wrapper in aggressive mode");
+		System.out.println("\t--out <filename.xml>");
 		System.out.println("\t--PATHALGO Use path reconstruction algorithm x");
 		System.out.println("\t--LIBSUMTW Use library summary taint wrapper");
 		System.out.println("\t--SUMMARYPATH Path to library summaries");
