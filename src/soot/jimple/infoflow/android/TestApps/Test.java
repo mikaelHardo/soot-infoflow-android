@@ -34,9 +34,6 @@ import soot.jimple.infoflow.util.IntentTag;
 
 import org.xmlpull.v1.XmlPullParserException;
 
-import soot.Hierarchy;
-import soot.Scene;
-import soot.SootClass;
 import soot.SootMethod;
 import soot.jimple.Stmt;
 import soot.jimple.infoflow.IInfoflow.CallgraphAlgorithm;
@@ -70,9 +67,11 @@ public class Test {
 			this.wr = wr;
 		}
 		
+		// When flowdroid is finished
 		@Override
 		public void onResultsAvailable(
 				IInfoflowCFG cfg, InfoflowResults results) {
+
 			// Dump the results
 			if (outFilename != null) {
 				try {
@@ -80,72 +79,54 @@ public class Test {
 				} catch (IOException ex) {
 				}
 			}
+			
 			if (results == null) {
 				println("No results found.");
+			
 			} else {
+				// Lets print the output as an XML file
 				println("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
 				println("<results package=\"" + escapeXML(this.appPkgName)
 						+ "\">");
-				Set<SinkInfo> sinks = new TreeSet<SinkInfo>(results
-						.getResults().keySet());
+				
+				// A flow can consist of multiple sources to one sink
+				Set<SinkInfo> sinks = new TreeSet<SinkInfo>(results.getResults().keySet());
+
 				for (SinkInfo sink : sinks) {
-					// println("Found a flow to sink " + sink +
-					// ", from the following sources:");
-					// for (SourceInfo source : results.getResults().get(sink))
-					// {
-					// println("\t- " + source.getSource() + " (in "
-					// + cfg.getMethodOf(source.getContext()).getSignature() +
-					// ")");
-					// if (source.getPath() != null &&
-					// !source.getPath().isEmpty())
-					// println("\t\ton Path " + source.getPath());
-					// }
+					// New flow
 					println("<flow>");
-					// Stmt sinkStmt = sink.getContext();
-					print("<sink method=\""
-							+ escapeXML(getMethSig(sink.getContext())) + "\"");
+					print("<sink method=\"" + escapeXML(getMethodSignature(sink.getContext())) + "\"");
+					
+					// If the sink is an "Intent Sink", we want to add more data to it. We get the Intent ID,
+					// that are set by the app transformer, have already been retrieved and saved in a "Tag"
 					if (Infoflow.isIntentSink(sink.getContext())) {
 						print(" is-intent=\"1\"");
-						print(" component-type=\""
-								+ escapeXML(getComponentTypeFromMethod(sink.getContext()))
-								+ "\"");
-						print(" intent-id=\""
-								+ escapeXML(((IntentTag) sink.getContext()
-										.getTag("IntentID")).getIntentID())
-								+ "\"");
+						print(" component-type=\"" + escapeXML(getComponentTypeFromMethod(sink.getContext())) + "\"");
+						print(" intent-id=\"" + escapeXML(((IntentTag) sink.getContext().getTag("IntentID")).getIntentID()) + "\"");
 					}
+					// Again, if the sink is an IntentResult, we need some other data
 					if (Infoflow.isIntentResultSink(sink.getContext())) {
 						print(" is-intent-result=\"1\"");
-						print(" component=\""
-								+ escapeXML(cfg.getMethodOf(sink.getContext())
-										.getDeclaringClass()) + "\"");
+						print(" component=\"" + escapeXML(cfg.getMethodOf(sink.getContext()).getDeclaringClass()) + "\"");
 					}
+					// sink ends
 					println("></sink>");
-					for (SourceInfo source : new TreeSet<SourceInfo>(results
-							.getResults().get(sink))) {
-						println("<source method=\""
-								+ escapeXML(getMethSig(source.getContext()))
-								+ "\" component-type=\""
-								+ escapeXML(getComponentTypeFromClass(cfg.getMethodOf(source.getContext()).getDeclaringClass()))
-								+ "\" component=\""
-								+ escapeXML(cfg
-										.getMethodOf(source.getContext())
-										.getDeclaringClass()) + "\">");
-						println("<in>"
-								+ escapeXML(cfg
-										.getMethodOf(source.getContext())
-										.getName()) + "</in>");
-						if (source.getPath() != null
-								&& !source.getPath().isEmpty()) {
-							// println("<on-path>" + escapeXML(source.getPath())
-							// + "</on-path>");
-						}
+					
+					// The sources to one sink
+					for (SourceInfo source : new TreeSet<SourceInfo>(results.getResults().get(sink))) {
+						// We want to know the methodname of the source method
+						println("<source method=\"" + escapeXML(getMethodSignature(source.getContext()))
+								+ "\" component=\"" + escapeXML(cfg.getMethodOf(source.getContext()).getDeclaringClass()) + "\">");
+						// We also want to know, what method the call happens in
+						println("<in>" + escapeXML(cfg.getMethodOf(source.getContext()).getName()) + "</in>");
+						
 						println("</source>");
 					}
 					println("</flow>");
 				}
 				println("</results>");
 			}
+			
 			if (outFilename != null) {
 				try {
 					wr.close();
@@ -154,44 +135,21 @@ public class Test {
 			}
 		}
 		
-		public String getMethSig(Stmt stmt) {
+		public String getMethodSignature(Stmt stmt) {
+			// Returns the signature of a method, like: sendBroadcast(android.content.Intent)
 			if (!stmt.containsInvokeExpr()) {
 				return "Stmt(" + stmt.toString() + ")";
 			}
 			AbstractInvokeExpr ie = (AbstractInvokeExpr) stmt.getInvokeExpr();
 			SootMethod meth = ie.getMethod();
 			return meth.getSignature();
+		
 		}
 		
-		private static String getComponentTypeFromClass(SootClass theClass) {
-
-			SootClass androidActivity = Scene.v().getSootClass(
-					"android.app.Activity");
-			SootClass androidService = Scene.v().getSootClass(
-					"android.app.Service");
-			SootClass androidBroadcastReceiver = Scene.v().getSootClass(
-					"android.content.BroadcastReceiver");
-
-			Hierarchy hierarchy = new Hierarchy();
-
-			if (hierarchy.isClassSuperclassOf(androidActivity, theClass)) {
-				return "Activity";
-			}
-
-			if (hierarchy.isClassSuperclassOf(androidService, theClass)) {
-				return "Service";
-			}
-
-			if (hierarchy.isClassSuperclassOf(androidBroadcastReceiver, theClass)) {
-				return "BroadcastReceiver";
-			}
-			
-			return "";
-
-		}
-
 		private static String getComponentTypeFromMethod(Stmt stmt) {
-
+			// We want to know, if a method starts an Activity, a Service or a Broadcast Reciever, the easiest way to know, is simply to
+			// check the method name.
+			
 			if (!stmt.containsInvokeExpr()) {
 				return "";
 			}
@@ -199,7 +157,6 @@ public class Test {
 			AbstractInvokeExpr ie = (AbstractInvokeExpr) stmt.getInvokeExpr();
 			SootMethod meth = ie.getMethod();
 
-			// FIXME: Check the method name better!
 			if (meth.toString().indexOf("startActivity") != -1) {
 				return "Activity";
 			}
