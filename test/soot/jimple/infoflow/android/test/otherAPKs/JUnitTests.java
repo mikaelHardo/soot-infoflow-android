@@ -16,8 +16,8 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.xmlpull.v1.XmlPullParserException;
 
-import soot.jimple.infoflow.InfoflowResults;
 import soot.jimple.infoflow.android.SetupApplication;
+import soot.jimple.infoflow.results.InfoflowResults;
 import soot.jimple.infoflow.taintWrappers.EasyTaintWrapper;
 
 public class JUnitTests {
@@ -84,6 +84,13 @@ public class JUnitTests {
 				("testAPKs/enriched1.apk", false, false, false);
 		Assert.assertNotNull(res);
 		Assert.assertEquals(1, res.size());
+	}
+
+	@Test
+	public void runReturnParameterTest() throws IOException, XmlPullParserException {
+		InfoflowResults res = analyzeAPKFile
+				("testAPKs/ReturnParameterTest.apk", false, false, false);
+		Assert.assertTrue(res == null || res.isEmpty());
 	}
 
 }

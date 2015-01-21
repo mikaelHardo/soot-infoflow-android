@@ -33,7 +33,6 @@ import soot.SootMethod;
 import soot.jimple.infoflow.BiDirICFGFactory;
 import soot.jimple.infoflow.IInfoflow.CallgraphAlgorithm;
 import soot.jimple.infoflow.Infoflow;
-import soot.jimple.infoflow.InfoflowResults;
 import soot.jimple.infoflow.android.AndroidSourceSinkManager.LayoutMatchingMode;
 import soot.jimple.infoflow.android.data.AndroidMethod;
 import soot.jimple.infoflow.android.data.parsers.PermissionMethodParser;
@@ -49,6 +48,7 @@ import soot.jimple.infoflow.data.pathBuilders.DefaultPathBuilderFactory.PathBuil
 import soot.jimple.infoflow.entryPointCreators.AndroidEntryPointCreator;
 import soot.jimple.infoflow.handlers.ResultsAvailableHandler;
 import soot.jimple.infoflow.ipc.IIPCManager;
+import soot.jimple.infoflow.results.InfoflowResults;
 import soot.jimple.infoflow.taintWrappers.ITaintPropagationWrapper;
 import soot.options.Options;
 
@@ -68,6 +68,7 @@ public class SetupApplication {
 	private boolean flowSensitiveAliasing = true;
 	private boolean ignoreFlowsInSystemPackages = true;
 	private boolean enableCallbackSources = true;
+	private boolean computeResultPaths = true;
 	
 	private int accessPathLength = 5;
 	private LayoutMatchingMode layoutMatchingMode = LayoutMatchingMode.MatchSensitiveOnly;
@@ -482,10 +483,10 @@ public class SetupApplication {
 		Infoflow info;
 		if (cfgFactory == null)
 			info = new Infoflow(androidJar, forceAndroidJar, null,
-					new DefaultPathBuilderFactory(pathBuilder));
+					new DefaultPathBuilderFactory(pathBuilder, computeResultPaths));
 		else
 			info = new Infoflow(androidJar, forceAndroidJar, cfgFactory,
-					new DefaultPathBuilderFactory(pathBuilder));
+					new DefaultPathBuilderFactory(pathBuilder, computeResultPaths));
 		
 		final String path;
 		if (forceAndroidJar)
@@ -507,7 +508,6 @@ public class SetupApplication {
 		info.setEnableExceptionTracking(enableExceptions);
 		Infoflow.setAccessPathLength(accessPathLength);
 		info.setFlowSensitiveAliasing(flowSensitiveAliasing);
-		info.setComputeResultPaths(pathBuilder != PathBuilder.ContextInsensitiveSourceFinder);
 		info.setIgnoreFlowsInSystemPackages(ignoreFlowsInSystemPackages);
 		
 		info.setInspectSources(false);
@@ -687,6 +687,18 @@ public class SetupApplication {
 	 */
 	public void setPathBuilder(PathBuilder builder) {
 		this.pathBuilder = builder;
+	}
+	
+	/**
+	 * Sets whether the exact paths between source and sink shall be computed.
+	 * If this feature is disabled, only the source-and-sink pairs are reported.
+	 * This option only applies if the selected path reconstruction algorithm
+	 * supports path computations.
+	 * @param computeResultPaths True if the exact propagation paths shall be
+	 * computed, otherwise false
+	 */
+	public void setComputeResultPaths(boolean computeResultPaths) {
+		this.computeResultPaths = computeResultPaths;
 	}
 	
 }
